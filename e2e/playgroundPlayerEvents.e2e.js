@@ -268,7 +268,7 @@ describe('Playground player events', () => {
     await waitFor(element(by.id('logLevelPicker')))
       .toBeVisible()
       .whileElement(by.id('modalScrollView'))
-      .scroll(50, 'down');
+      .scroll(150, 'down');
     await element(by.text('DEBUG').withAncestor(by.id('logLevelPicker'))).tap();
     await element(by.id('closeIcon')).tap();
 
@@ -286,7 +286,7 @@ describe('Playground player events', () => {
     await waitFor(element(by.id('autoMaxQualityPicker')))
       .toBeVisible()
       .whileElement(by.id('modalScrollView'))
-      .scroll(50, 'down');
+      .scroll(150, 'down');
     await element(
       by.text('720P').withAncestor(by.id('autoMaxQualityPicker'))
     ).tap();
@@ -365,6 +365,24 @@ describe('Playground player events', () => {
       .whileElement(by.id('modalScrollView'))
       .scroll(50, 'down');
     await element(by.id('initialBufferDuration')).replaceText('4.0');
+    await element(by.id('closeIcon')).tap();
+
+    await expectNativePlayerToBeVisible(); // Not a crash
+  });
+
+  it("Player doesn't crash after changing pauseInBackground", async () => {
+    await expectNativePlayerToBeVisible();
+    await togglePlayPauseVideo();
+
+    await waitFor(element(by.id('settingsIcon')))
+      .toBeVisible()
+      .withTimeout(TIMEOUT);
+    await element(by.id('settingsIcon')).tap();
+    await waitFor(element(by.id('pauseInBackground')))
+      .toBeVisible()
+      .whileElement(by.id('modalScrollView'))
+      .scroll(50, 'down');
+    await element(by.id('pauseInBackground')).tap();
     await element(by.id('closeIcon')).tap();
 
     await expectNativePlayerToBeVisible(); // Not a crash

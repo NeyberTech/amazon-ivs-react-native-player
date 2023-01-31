@@ -35,6 +35,20 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
     private var lastFramesDropped: Int?;
     private var lastFramesDecoded: Int?;
 
+
+    private var _pipController: Any? = nil
+
+    @available(iOS 15, *)
+    private var pipController: AVPictureInPictureController? {
+       get {
+           return _pipController as! AVPictureInPictureController?
+       }
+       set {
+           _pipController = newValue
+       }
+   }
+
+
     override init(frame: CGRect) {
         self.muted = player.muted
         self.liveLowLatency = player.isLiveLowLatency
@@ -55,18 +69,19 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         self.addProgressObserver()
         self.addPlayerObserver()
         self.addTimePointObserver()
-        self.addApplicationLifecycleObservers()
 
         player.delegate = self
         self.playerView.player = player
+        preparePictureInPicture()
     }
 
     deinit {
         self.removeProgressObserver()
         self.removePlayerObserver()
         self.removeTimePointObserver()
-        self.removeApplicationLifecycleObservers()
     }
+
+
 
     func load(urlString: String) {
         finishedLoading = false
@@ -75,6 +90,8 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         onLoadStart?(["": NSNull()])
         player.load(url)
     }
+
+
 
     @objc var progressInterval: NSNumber {
         // TODO: Figure out why updatating observer does not work and results in multiple calls per second
@@ -121,7 +138,7 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
             player.setAutoMaxQuality(quality)
         }
     }
-    
+
     @objc var initialBufferDuration: Double {
         didSet {
             let parsedTime = CMTimeMakeWithSeconds(initialBufferDuration, preferredTimescale: 10)
@@ -151,7 +168,7 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         }
         return value
     }
-    
+
     @objc var streamUrl: String? {
         didSet {
             if let url = streamUrl, !streamUrl!.isEmpty {
@@ -188,7 +205,7 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
             playerView.videoGravity = findResizeMode(mode: resizeMode)
         }
     }
-    
+
     private func findResizeMode(mode: String?) -> AVLayerVideoGravity {
         switch mode {
         case "aspectFill":
@@ -201,7 +218,7 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
             return AVLayerVideoGravity.resizeAspect
         }
     }
-    
+
     @objc var breakpoints: NSArray {
         didSet {
             self.removeTimePointObserver()
@@ -220,6 +237,19 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
     @objc func seek(position: Double) {
         let parsedTime = CMTimeMakeWithSeconds(position, preferredTimescale: 1000000)
         player.seek(to: parsedTime)
+    }
+
+
+
+    @objc func togglePip() {
+        guard #available(iOS 15, *), let pipController = pipController else {
+            return
+        }
+        if pipController.isPictureInPictureActive {
+            pipController.stopPictureInPicture()
+        } else {
+            pipController.startPictureInPicture()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -263,34 +293,6 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         }
     }
 
-    private var didPauseOnBackground = false
-
-    @objc private func applicationDidEnterBackground(notification: Notification) {
-        if player.state == .playing || player.state == .buffering {
-            didPauseOnBackground = true
-            pause()
-        } else {
-            didPauseOnBackground = false
-        }
-    }
-
-    @objc private func applicationDidBecomeActive(notification: Notification) {
-        if didPauseOnBackground && player.error == nil {
-            play()
-            didPauseOnBackground = false
-        }
-    }
-
-    private func addApplicationLifecycleObservers() {
-        NotificationCenter.default.addObserver(self, selector: #selector(applicationDidEnterBackground(notification:)), name: UIApplication.didEnterBackgroundNotification, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(applicationDidBecomeActive(notification:)), name: UIApplication.didBecomeActiveNotification, object: nil)
-    }
-
-    private func removeApplicationLifecycleObservers() {
-        NotificationCenter.default.removeObserver(self, name: UIApplication.didEnterBackgroundNotification, object: nil)
-        NotificationCenter.default.removeObserver(self, name: UIApplication.willEnterForegroundNotification, object: nil)
-    }
-    
     private func mapPlayerState(state: IVSPlayer.State) -> String {
         switch state {
         case IVSPlayer.State.playing: return "Playing"
@@ -349,7 +351,7 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
             onLoad?(["duration": duration ?? NSNull()])
             finishedLoading = true
         }
-        
+
         if state == IVSPlayer.State.ready {
             if player.qualities != oldQualities {
                 let qualities: NSMutableArray = []
@@ -362,10 +364,10 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
                         "width": quality.width,
                         "height": quality.height
                     ]
-                    
+
                     qualities.add(qualityData)
                 }
-                
+
                 onData?(["playerData": [
                     "qualities": qualities,
                     "version": player.version,
@@ -431,5 +433,28 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
 
     func player(_ player: IVSPlayer, didFailWithError error: Error) {
         onError?(["error": error.localizedDescription])
+    }
+
+    private func preparePictureInPicture() {
+
+        guard #available(iOS 15, *), AVPictureInPictureController.isPictureInPictureSupported() else {
+            return
+        }
+
+
+        if let existingController = self.pipController {
+            if existingController.ivsPlayerLayer == playerView.playerLayer {
+                return
+            }
+            self.pipController = nil
+        }
+
+        guard let pipController = AVPictureInPictureController(ivsPlayerLayer: playerView.playerLayer) else {
+            return
+        }
+
+        self.pipController = pipController
+        pipController.canStartPictureInPictureAutomaticallyFromInline = true
+
     }
 }
