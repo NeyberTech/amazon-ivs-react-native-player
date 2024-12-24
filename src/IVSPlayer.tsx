@@ -33,6 +33,7 @@ type IVSPlayerProps = {
   ref: any;
   muted?: boolean;
   loop?: boolean;
+  ignoreSilentSwitch?: string;
   liveLowLatency?: boolean;
   rebufferToLive?: boolean;
   playbackRate?: number;
@@ -86,6 +87,7 @@ export type Props = {
   paused?: boolean;
   muted?: boolean;
   loop?: boolean;
+  ignoreSilentSwitch?: string;
   autoplay?: boolean;
   streamUrl?: string;
   liveLowLatency?: boolean;
@@ -136,6 +138,7 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
       paused,
       muted,
       loop = false,
+      ignoreSilentSwitch,
       resizeMode,
       autoplay = true,
       liveLowLatency,
@@ -398,6 +401,7 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
           testID="IVSPlayer"
           muted={muted}
           loop={loop}
+          ignoreSilentSwitch={ignoreSilentSwitch}
           liveLowLatency={liveLowLatency}
           rebufferToLive={rebufferToLive}
           style={styles.mediaPlayer}
