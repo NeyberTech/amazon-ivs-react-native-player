@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import AmazonIVSPlayer
+import AVFAudio
 
 @objc(AmazonIvsView)
 class AmazonIvsView: UIView, IVSPlayer.Delegate {
@@ -124,6 +125,27 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         didSet {
             let parsedTime = CMTimeMakeWithSeconds(initialBufferDuration, preferredTimescale: 10)
             player.setInitialBufferDuration(parsedTime)
+        }
+    }
+
+    @objc var ignoreSilentSwitch: String? {
+        didSet {
+            let audioSession: AVAudioSession! = AVAudioSession.sharedInstance()
+            var category: AVAudioSession.Category?
+
+            if ignoreSilentSwitch == "ignore" {
+                category = AVAudioSession.Category.playback
+            } else if ignoreSilentSwitch == "obey" {
+                category = AVAudioSession.Category.ambient
+            }
+
+            if let category {
+              do {
+                try audioSession.setCategory(category)
+              } catch {
+
+              }
+            }
         }
     }
 
