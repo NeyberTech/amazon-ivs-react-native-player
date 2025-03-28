@@ -68,6 +68,7 @@ export default function PlaygroundExample() {
   const [autoplay, setAutoplay] = useState(true);
   const [paused, setPaused] = useState(false);
   const [url, setUrl] = useState(URL);
+  const [origin, setOrigin] = useState('');
   const [muted, setMuted] = useState(false);
   const [pauseInBackground, setPauseInBackground] = useState(false);
   const [manualQuality, setManualQuality] = useState<Quality | null>(null);
@@ -79,6 +80,7 @@ export default function PlaygroundExample() {
   const [buffering, setBuffering] = useState(false);
   const [duration, setDuration] = useState<number | null>(null);
   const [liveLowLatency, setLiveLowLatency] = useState(true);
+  const [rebufferToLive, setRebufferToLive] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [logLevel, setLogLevel] = useState(LogLevel.IVSLogLevelError);
   const [progressInterval, setProgressInterval] = useState(1);
@@ -160,6 +162,7 @@ export default function PlaygroundExample() {
           muted={muted}
           autoplay={autoplay}
           liveLowLatency={liveLowLatency}
+          rebufferToLive={rebufferToLive}
           streamUrl={url}
           logLevel={logLevel}
           initialBufferDuration={initialBufferDuration}
@@ -187,6 +190,9 @@ export default function PlaygroundExample() {
           onQualityChange={(newQuality) => {
             setDetectedQuality(newQuality);
             log(`quality changed: ${newQuality?.name}`);
+          }}
+          onPipChange={(isActive) => {
+            log(`picture in picture changed - isActive: ${isActive}`);
           }}
           onRebuffering={() => setBuffering(true)}
           onLoadStart={() => log(`load started`)}
@@ -397,6 +403,12 @@ export default function PlaygroundExample() {
                     testID="liveLowLatency"
                   />
                   <SettingsSwitchItem
+                    label="Rebuffer To Live"
+                    onValueChange={setRebufferToLive}
+                    value={rebufferToLive}
+                    testID="rebufferToLive"
+                  />
+                  <SettingsSwitchItem
                     label="Pause in background"
                     value={pauseInBackground}
                     onValueChange={setPauseInBackground}
@@ -433,6 +445,21 @@ export default function PlaygroundExample() {
                   <SettingsItem label="Breakpoints">
                     <Button onPress={() => setBreakpoints(UPDATED_BREAKPOINTS)}>
                       Add
+                    </Button>
+                  </SettingsItem>
+                  <SettingsInputItem
+                    label="origin"
+                    onChangeText={setOrigin}
+                    value={origin}
+                  />
+                  <SettingsItem label=" ">
+                    <Button
+                      onPress={() => {
+                        mediaPlayerRef.current?.setOrigin(origin);
+                        log(`header origin set to: ${origin}`);
+                      }}
+                    >
+                      setOrigin
                     </Button>
                   </SettingsItem>
                 </View>

@@ -55,6 +55,10 @@ export default function AdvancedExample() {
     mediaPlayerRef?.current?.seekTo(value);
   };
 
+  useEffect(() => {
+    mediaPlayerRef.current?.setOrigin('http://www.example.com');
+  }, []);
+
   const togglePip = () => {
     mediaPlayerRef?.current?.togglePip();
   };
@@ -77,6 +81,7 @@ export default function AdvancedExample() {
         <IVSPlayer
           ref={mediaPlayerRef}
           autoplay={false}
+          loop
           paused={paused}
           streamUrl={URL}
           onDurationChange={setDuration}

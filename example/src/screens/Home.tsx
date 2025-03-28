@@ -4,6 +4,8 @@ import { Card, Paragraph } from 'react-native-paper';
 import { useNavigation } from '@react-navigation/native';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import { SafeAreaView } from 'react-native-safe-area-context';
+// @ts-expect-error these values come from .env file
+import { GIT_BRANCH, GIT_COMMIT } from '@env';
 import type { RootStackParamList } from '../App';
 
 type HomeScreenNavigationProp = StackNavigationProp<RootStackParamList, 'Home'>;
@@ -18,6 +20,18 @@ function Home() {
       </View>
 
       <ScrollView style={styles.list}>
+        <Card
+          testID="TestPlan"
+          style={styles.card}
+          onPress={() => {
+            navigate('TestPlan');
+          }}
+        >
+          <Card.Title title="TestPlan" />
+          <Card.Content>
+            <Paragraph>Testing harness for the player.</Paragraph>
+          </Card.Content>
+        </Card>
         <Card
           testID="Simple"
           style={styles.card}
@@ -45,6 +59,20 @@ function Home() {
           </Card.Content>
         </Card>
         <Card
+          testID="Swipeable"
+          style={styles.card}
+          onPress={() => {
+            navigate('SwipeableExample');
+          }}
+        >
+          <Card.Title title="Swipeable" />
+          <Card.Content>
+            <Paragraph>
+              A simple implementation of a swipeable video flow.
+            </Paragraph>
+          </Card.Content>
+        </Card>
+        <Card
           testID="Playground"
           style={styles.card}
           onPress={() => {
@@ -56,6 +84,14 @@ function Home() {
             <Paragraph>
               Playground implementation to test and experiment with all props,
               refs and callbacks.
+            </Paragraph>
+          </Card.Content>
+        </Card>
+        <Card testID="Version" style={styles.card}>
+          <Card.Title title="Version" />
+          <Card.Content>
+            <Paragraph>
+              {GIT_BRANCH} @ {GIT_COMMIT}
             </Paragraph>
           </Card.Content>
         </Card>

@@ -1,10 +1,13 @@
 package com.amazonaws.ivs.reactnative.player
 
+import android.app.Activity
+import android.app.PictureInPictureParams
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.FrameLayout
 import com.amazonaws.ivs.player.*
 import android.os.Build
+import android.util.Log
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.LifecycleEventListener
 import com.facebook.react.bridge.ReactContext
@@ -14,10 +17,6 @@ import com.facebook.react.uimanager.events.RCTEventEmitter
 import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.timerTask
-import android.app.PictureInPictureParams
-import android.app.Activity
-import androidx.annotation.RequiresApi
-
 
 class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(context), LifecycleEventListener {
   private var playerView: PlayerView? = null
@@ -29,13 +28,19 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
   private var lastLiveLatency: Long? = null
   private var lastBitrate: Long? = null
   private var lastDuration: Long? = null
+  private var lastPipState: Boolean = false;
   private var finishedLoading: Boolean = false
+  private var pipEnabled: Boolean = false
+  private var isInBackground: Boolean = false
+  private var preloadSourceMap: HashMap<Int, Source> = hashMapOf()
+
 
   enum class Events(private val mName: String) {
     STATE_CHANGED("onPlayerStateChange"),
     DURATION_CHANGED("onDurationChange"),
     ERROR("onError"),
     QUALITY_CHANGED("onQualityChange"),
+    PIP_CHANGED("onPipChange"),
     CUE("onTextCue"),
     METADATA_CUE("onTextMetadataCue"),
     LOAD("onLoad"),
@@ -93,7 +98,7 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
       }
 
       override fun onError(e: PlayerException) {
-        onError(e.errorMessage)
+        onError(e.getErrorMessage())
       }
     }
 
@@ -130,12 +135,20 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
     player?.isMuted = muted
   }
 
+  fun setLooping(shouldLoop: Boolean) {
+    player?.setLooping(shouldLoop)
+  }
+
   fun setVolume(volume: Double) {
     player?.setVolume(volume.toFloat())
   }
 
   fun setLiveLowLatency(liveLowLatency: Boolean) {
     player?.setLiveLowLatencyEnabled(liveLowLatency)
+  }
+
+  fun setRebufferToLive(rebufferToLive: Boolean) {
+    player?.setRebufferToLive(rebufferToLive)
   }
 
   fun setPlaybackRate(playbackRate: Double) {
@@ -194,6 +207,11 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
 
   fun setAutoQualityMode(autoQualityMode: Boolean) {
     player?.isAutoQualityMode = autoQualityMode
+  }
+
+  fun setPipEnabled(_pipEnabled: Boolean) {
+    pipEnabled = _pipEnabled
+    if (!pipEnabled) togglePip()
   }
 
   fun onTextCue(cue: TextCue) {
@@ -257,17 +275,27 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
   fun onSeek(position: Long) {
     val reactContext = context as ReactContext
     val data = Arguments.createMap()
-    data.putInt("position", TimeUnit.MILLISECONDS.toSeconds(position).toInt())
-
+    data.putDouble("position", convertMilliSecondsToSeconds(position))
     reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, Events.SEEK.toString(), data)
   }
 
   fun onProgress(position: Long) {
     val reactContext = context as ReactContext
     val data = Arguments.createMap()
-    data.putInt("position", TimeUnit.MILLISECONDS.toSeconds(position).toInt())
-
+    data.putDouble("position", convertMilliSecondsToSeconds(position))
     reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, Events.PROGRESS.toString(), data)
+  }
+
+  fun onPipChange(active: Boolean) {
+      val reactContext = context as ReactContext
+      val data = Arguments.createMap()
+      data.putString("active", if (active) "true" else "false")
+
+      reactContext.getJSModule(RCTEventEmitter::class.java).receiveEvent(id, Events.PIP_CHANGED.toString(), data)
+  }
+
+  private fun convertMilliSecondsToSeconds (milliSeconds: Long): Double {
+    return milliSeconds / 1000.0
   }
 
   private val mLayoutRunnable = Runnable {
@@ -285,10 +313,40 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
     player?.pause()
   }
 
-  fun seekTo(position: Long) {
-    player?.seekTo(TimeUnit.SECONDS.toMillis(position))
+  fun seekTo(position: Double) {
+    val milliseconds = (position * 1000.0).toLong()
+    player?.seekTo(milliseconds)
   }
 
+  fun setOrigin(origin: String) {
+    player?.setOrigin(origin)
+  }
+
+  fun preload(id: Int, url: String) {
+    // Beta API
+    val mplayer = player as? MediaPlayer
+    val source = mplayer?.preload(Uri.parse(url))
+    source?.let {
+      preloadSourceMap.put(id, source)
+    }
+  }
+
+  fun loadSource(id: Int) {
+    // Beta API
+    val source = preloadSourceMap.get(id)
+    source?.let {
+      val mplayer = player as? MediaPlayer
+      mplayer?.loadSource(source)
+    }
+  }
+
+  fun releaseSource(id: Int) {
+    // Beta API
+    val source = preloadSourceMap.remove(id)
+    source?.let {
+      source.release()
+    }
+  }
 
   fun onPlayerStateChange(state: Player.State) {
     val reactContext = context as ReactContext
@@ -360,6 +418,17 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
   private fun intervalHandler() {
     val reactContext = context as ReactContext
 
+    if (pipEnabled)
+    {
+        val activity: Activity? = reactContext.currentActivity
+        val isPipActive = activity!!.isInPictureInPictureMode
+        if(lastPipState !== isPipActive)
+        {
+          lastPipState = isPipActive
+          onPipChange(isPipActive === true)
+        }
+    }
+
     if (lastLiveLatency != player?.liveLatency) {
       val liveLatencyData = Arguments.createMap()
 
@@ -405,8 +474,7 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
   }
 
   private fun getDuration(duration: Long): Double {
-    val durationInSeconds = TimeUnit.MILLISECONDS.toSeconds(duration).toInt()
-    return durationInSeconds.toDouble()
+    return convertMilliSecondsToSeconds(duration)
   }
 
   private fun mapPlayerState(state: Player.State): String {
@@ -419,35 +487,55 @@ class AmazonIvsView(private val context: ThemedReactContext) : FrameLayout(conte
     }
   }
 
-
-
-  fun togglePip(){
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N
-      && context.packageManager
-        .hasSystemFeature(
-          PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+  fun togglePip() {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N &&
+            context.packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    ) {
       val activity: Activity? = context.currentActivity
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        val params = PictureInPictureParams.Builder()
-        activity?.enterPictureInPictureMode(params.build());
-      } else {
-        activity?.enterPictureInPictureMode();
+      val hasToBuild = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+
+      if (!pipEnabled) {
+
+        val isInPip =
+            if (hasToBuild) activity!!.isInPictureInPictureMode
+            else activity!!.isInPictureInPictureMode
+        if (isInPip) {
+          activity?.moveTaskToBack(false)
+        }
+        return
       }
 
+      if (hasToBuild) {
+        val params = PictureInPictureParams.Builder().build()
+        activity?.enterPictureInPictureMode(params)
+      } else {
+        activity?.enterPictureInPictureMode()
+      }
     }
   }
 
-
   override fun onHostResume() {
+    isInBackground = false
   }
 
-  override fun onHostPause() {}
+  override fun onHostPause() {
+    if (pipEnabled) {
+      isInBackground = true
+      togglePip()
+    }
+  }
 
   override fun onHostDestroy() {
     cleanup()
   }
 
   fun cleanup() {
+    // Cleanup any remaining sources
+    for (source in preloadSourceMap.values) {
+      source.release()
+    }
+    preloadSourceMap.clear()
+
     player?.removeListener(playerListener!!)
     player?.release()
     player = null

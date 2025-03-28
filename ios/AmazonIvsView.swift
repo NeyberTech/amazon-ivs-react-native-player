@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import AmazonIVSPlayer
+import AmazonIVSPlayer_Private // Beta API access
 
 @objc(AmazonIvsView)
 class AmazonIvsView: UIView, IVSPlayer.Delegate {
@@ -10,6 +11,7 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
     @objc var onPlayerStateChange: RCTDirectEventBlock?
     @objc var onDurationChange: RCTDirectEventBlock?
     @objc var onQualityChange: RCTDirectEventBlock?
+    @objc var onPipChange: RCTDirectEventBlock?
     @objc var onRebuffering: RCTDirectEventBlock?
     @objc var onLoadStart: RCTDirectEventBlock?
     @objc var onLoad: RCTDirectEventBlock?
@@ -34,9 +36,12 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
     private var lastDuration: CMTime?;
     private var lastFramesDropped: Int?;
     private var lastFramesDecoded: Int?;
+    private var preloadSourceMap: [Int: IVSSource] = [:]
 
 
     private var _pipController: Any? = nil
+    private var isPipActive: Bool = false
+
 
     @available(iOS 15, *)
     private var pipController: AVPictureInPictureController? {
@@ -51,8 +56,11 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
 
     override init(frame: CGRect) {
         self.muted = player.muted
+        self.loop = player.looping
         self.liveLowLatency = player.isLiveLowLatency
+        self.rebufferToLive = false;
         self.autoQualityMode = player.autoQualityMode
+        self.pipEnabled = false
         self.playbackRate = Double(player.playbackRate)
         self.logLevel = NSNumber(value: player.logLevel.rawValue)
         self.progressInterval = 1
@@ -76,6 +84,7 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
     }
 
     deinit {
+        self.preloadSourceMap.removeAll()
         self.removeProgressObserver()
         self.removePlayerObserver()
         self.removeTimePointObserver()
@@ -100,6 +109,12 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
             self.addProgressObserver()
         }
     }
+    
+    @objc var loop: Bool {
+        didSet {
+            player.looping = loop
+        }
+    }
 
     @objc var muted: Bool {
         didSet {
@@ -119,6 +134,12 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         }
     }
 
+    @objc var rebufferToLive: Bool {
+        didSet {
+            player.setRebufferToLive(rebufferToLive)
+        }
+    }
+
     @objc var quality: NSDictionary? {
         didSet {
             let newQuality = findQuality(quality: quality)
@@ -131,6 +152,24 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
             player.autoQualityMode = autoQualityMode
         }
     }
+
+    @objc var pipEnabled: Bool {
+        didSet {
+            guard #available(iOS 15, *), AVPictureInPictureController.isPictureInPictureSupported() else {
+                return
+            }
+            if self.pipController != nil {
+                self.pipController!.canStartPictureInPictureAutomaticallyFromInline = pipEnabled
+                self.togglePip()
+                if !self.pipEnabled {
+                    self.pipController = nil
+                }
+            } else {
+                self.preparePictureInPicture()
+            }
+        }
+    }
+
 
     @objc var autoMaxQuality: NSDictionary? {
         didSet {
@@ -239,7 +278,31 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         player.seek(to: parsedTime)
     }
 
+    @objc func setOrigin(origin: NSString){
+        let url = URL(string: origin as String)
+        player.setOrigin(url)
+    }
 
+    @objc func preload(id: Int, url: NSString) {
+        // Beta API
+        let url = URL(string: url as String)
+        if let url = url {
+            let source = player.preload(url)
+            preloadSourceMap[id] = source; 
+        }
+    }
+
+    @objc func loadSource(id: Int) {
+        // Beta API
+        if let source = preloadSourceMap[id] {
+            player.load(source)
+        }
+    }
+
+    @objc func releaseSource(id: Int) {
+        // Beta API
+        preloadSourceMap.removeValue(forKey: id)
+    }
 
     @objc func togglePip() {
         guard #available(iOS 15, *), let pipController = pipController else {
@@ -247,7 +310,7 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         }
         if pipController.isPictureInPictureActive {
             pipController.stopPictureInPicture()
-        } else {
+        } else if self.pipEnabled {
             pipController.startPictureInPicture()
         }
     }
@@ -441,7 +504,9 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
             return
         }
 
-
+        if !self.pipEnabled {
+            return
+        }
         if let existingController = self.pipController {
             if existingController.ivsPlayerLayer == playerView.playerLayer {
                 return
@@ -454,7 +519,20 @@ class AmazonIvsView: UIView, IVSPlayer.Delegate {
         }
 
         self.pipController = pipController
-        pipController.canStartPictureInPictureAutomaticallyFromInline = true
+        pipController.canStartPictureInPictureAutomaticallyFromInline = self.pipEnabled
 
     }
 }
+@available(iOS 15, *)
+extension AmazonIvsView: AVPictureInPictureControllerDelegate {
+    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        isPipActive = true
+        onPipChange?(["active": isPipActive])
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        isPipActive = false
+        onPipChange?(["active": isPipActive])
+    }
+}
+

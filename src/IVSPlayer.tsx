@@ -12,6 +12,7 @@ import {
   findNodeHandle,
   View,
   NativeSyntheticEvent,
+  Platform,
 } from 'react-native';
 import type { LogLevel, PlayerState } from './enums';
 import type {
@@ -22,19 +23,24 @@ import type {
   VideoData,
   IVSPlayerRef,
   ResizeMode,
+  Source,
 } from './types';
+import { createSourceWrapper } from './source';
 
 type IVSPlayerProps = {
   style?: ViewStyle;
   testID?: string;
   ref: any;
   muted?: boolean;
+  loop?: boolean;
   liveLowLatency?: boolean;
+  rebufferToLive?: boolean;
   playbackRate?: number;
   streamUrl?: string;
   resizeMode?: ResizeMode;
   logLevel?: LogLevel;
   progressInterval?: number;
+  pipEnabled?: boolean;
   volume?: number;
   quality?: Quality | null;
   autoMaxQuality?: Quality | null;
@@ -54,6 +60,7 @@ type IVSPlayerProps = {
     event: NativeSyntheticEvent<{ duration: number | null }>
   ): void;
   onQualityChange?(event: NativeSyntheticEvent<{ quality: Quality }>): void;
+  onPipChange?(event: NativeSyntheticEvent<{ active: boolean | string }>): void;
   onRebuffering?(): void;
   onLoadStart?(): void;
   onLoad?(event: NativeSyntheticEvent<{ duration: number | null }>): void;
@@ -73,14 +80,16 @@ const VIEW_NAME = 'AmazonIvs';
 
 const IVSPlayer = requireNativeComponent<IVSPlayerProps>(VIEW_NAME);
 
-type Props = {
+export type Props = {
   style?: ViewStyle;
   testID?: string;
   paused?: boolean;
   muted?: boolean;
+  loop?: boolean;
   autoplay?: boolean;
   streamUrl?: string;
   liveLowLatency?: boolean;
+  rebufferToLive?: boolean;
   playbackRate?: number;
   logLevel?: LogLevel;
   resizeMode?: ResizeMode;
@@ -92,12 +101,14 @@ type Props = {
   breakpoints?: number[];
   maxBitrate?: number;
   initialBufferDuration?: number;
+  pipEnabled?: boolean;
   onSeek?(position: number): void;
   onData?(data: PlayerData): void;
   onVideoStatistics?(data: VideoData): void;
   onPlayerStateChange?(state: PlayerState): void;
   onDurationChange?(duration: number | null): void;
   onQualityChange?(quality: Quality | null): void;
+  onPipChange?(isActive: boolean): void;
   onRebuffering?(): void;
   onLoadStart?(): void;
   onLoad?(duration: number | null): void;
@@ -124,10 +135,13 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
       streamUrl,
       paused,
       muted,
+      loop = false,
       resizeMode,
       autoplay = true,
       liveLowLatency,
+      rebufferToLive,
       playbackRate,
+      pipEnabled,
       logLevel,
       progressInterval,
       volume,
@@ -143,6 +157,7 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
       onPlayerStateChange,
       onDurationChange,
       onQualityChange,
+      onPipChange,
       onRebuffering,
       onLoadStart,
       onLoad,
@@ -158,6 +173,37 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
   ) => {
     const mediaPlayerRef = useRef(null);
     const initialized = useRef(false);
+
+    const preload = useCallback((url: string) => {
+      const sourceWrapper = createSourceWrapper(url);
+
+      UIManager.dispatchViewManagerCommand(
+        findNodeHandle(mediaPlayerRef.current),
+
+        UIManager.getViewManagerConfig(VIEW_NAME).Commands.preload,
+        [sourceWrapper.getId(), sourceWrapper.getUri()]
+      );
+
+      return sourceWrapper;
+    }, []);
+
+    const loadSource = useCallback((source: Source) => {
+      UIManager.dispatchViewManagerCommand(
+        findNodeHandle(mediaPlayerRef.current),
+
+        UIManager.getViewManagerConfig(VIEW_NAME).Commands.loadSource,
+        [source.getId()]
+      );
+    }, []);
+
+    const releaseSource = useCallback((source: Source) => {
+      UIManager.dispatchViewManagerCommand(
+        findNodeHandle(mediaPlayerRef.current),
+
+        UIManager.getViewManagerConfig(VIEW_NAME).Commands.releaseSource,
+        [source.getId()]
+      );
+    }, []);
 
     const play = useCallback(() => {
       UIManager.dispatchViewManagerCommand(
@@ -180,6 +226,15 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
         findNodeHandle(mediaPlayerRef.current),
 
         UIManager.getViewManagerConfig(VIEW_NAME).Commands.seekTo,
+        [value]
+      );
+    }, []);
+
+    const setOrigin = useCallback((value) => {
+      UIManager.dispatchViewManagerCommand(
+        findNodeHandle(mediaPlayerRef.current),
+
+        UIManager.getViewManagerConfig(VIEW_NAME).Commands.setOrigin,
         [value]
       );
     }, []);
@@ -207,12 +262,25 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
     useImperativeHandle(
       ref,
       () => ({
+        preload,
+        loadSource,
+        releaseSource,
         play,
         pause,
         seekTo,
+        setOrigin,
         togglePip,
       }),
-      [play, pause, seekTo, togglePip]
+      [
+        preload,
+        loadSource,
+        releaseSource,
+        play,
+        pause,
+        seekTo,
+        setOrigin,
+        togglePip,
+      ]
     );
 
     const onSeekHandler = (
@@ -244,15 +312,21 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
       onQualityChange?.(newQuality);
     };
 
+    const onPipChangeHandler = (
+      event: NativeSyntheticEvent<{ active: string | boolean }>
+    ) => {
+      const { active } = event.nativeEvent;
+      onPipChange?.(active === true || active === 'true');
+    };
+
     const onLoadHandler = (
       event: NativeSyntheticEvent<{
         duration: number | null;
       }>
     ) => {
-      if (!paused) {
-        play();
-      } else {
-        pause();
+      if (Platform.OS === 'android') {
+        const shouldAutoPlay = autoplay && !paused;
+        shouldAutoPlay ? play() : pause();
       }
 
       const { duration } = event.nativeEvent;
@@ -323,7 +397,9 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
         <IVSPlayer
           testID="IVSPlayer"
           muted={muted}
+          loop={loop}
           liveLowLatency={liveLowLatency}
+          rebufferToLive={rebufferToLive}
           style={styles.mediaPlayer}
           ref={mediaPlayerRef}
           playbackRate={playbackRate}
@@ -338,12 +414,14 @@ const IVSPlayerContainer = React.forwardRef<IVSPlayerRef, Props>(
           autoQualityMode={autoQualityMode}
           breakpoints={breakpoints}
           maxBitrate={maxBitrate}
+          pipEnabled={pipEnabled}
           onVideoStatistics={
             onVideoStatistics ? onVideoStatisticsHandler : undefined
           }
           onData={onDataHandler}
           onSeek={onSeekHandler}
           onQualityChange={onQualityChangeHandler}
+          onPipChange={onPipChangeHandler}
           onPlayerStateChange={onPlayerStateChangeHandler}
           onDurationChange={onDurationChangeHandler}
           onRebuffering={onRebuffering}
